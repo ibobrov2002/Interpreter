@@ -16,14 +16,13 @@ enum type_of_lex {
     LEX_DEQ, LEX_PER, LEX_TSLASH, LEX_SLASHT, LEX_BEGIN, LEX_END, 									/*37*/
     LEX_NUM,																						/*38*/
 	LEX_QUOTE,                                                                                    	/*39*/
-    LEX_ID,                                                                                     	/*40*/
-    POLIZ_LABEL,                                                                                	/*41*/
-    POLIZ_ADDRESS,                                                                              	/*42*/
-    POLIZ_GO,                                                                                   	/*43*/
-    POLIZ_FGO                                                                                   	/*44*/
+	LEX_DOUBLE,																						/*40*/
+    LEX_ID,                                                                                     	/*41*/
+    POLIZ_LABEL,                                                                                	/*42*/
+    POLIZ_ADDRESS,                                                                              	/*43*/
+    POLIZ_GO,                                                                                   	/*44*/
+    POLIZ_FGO                                                                                   	/*45*/
 };
-
-/////////////////////////  ????? Lex  //////////////////////////
  
 class Lex {
     type_of_lex   t_lex;
@@ -31,10 +30,17 @@ class Lex {
     string        str_lex;
     double        doub_lex;
 public:
-    Lex ( type_of_lex t = LEX_NULL, int v = 0, string s = "", double d = 0 ): t_lex (t), v_lex (v), str_lex (s), doub_lex(d)  { }
+    Lex ( type_of_lex t = LEX_NULL, int v = 0, string s = "", double f = 0 ): t_lex (t), v_lex (v), str_lex (s), doub_lex(f)  { }
     type_of_lex  get_type () const { 
     	  return t_lex; 
     }
+    Lex operator=(const Lex& a){
+    	t_lex=a.t_lex;
+    	v_lex=a.v_lex;
+    	str_lex=a.str_lex;
+    	doub_lex=a.doub_lex;
+    	return *this;
+	}
     int get_value_int () const { 
     	  return v_lex; 
     }
@@ -46,8 +52,6 @@ public:
 	}
   friend ostream & operator<< ( ostream &s, Lex l );
 };
-
-/////////////////////  ????? Ident  ////////////////////////////
  
 class Ident {
     string      name;
@@ -110,8 +114,6 @@ public:
       value_doub = d; 
     }
 };
-
-//////////////////////  TID  ///////////////////////
  
 vector<Ident> TID;
  
@@ -123,8 +125,6 @@ int put ( const string & buf ) {
     TID.push_back ( Ident(buf) );
     return TID.size () - 1;
 }
- 
-/////////////////////////////////////////////////////////////////
  
 class Scanner {
     FILE * fp;
@@ -157,7 +157,7 @@ Scanner::TW    [] = { "", "and", "string", "do", "else",
  
 const char *
 Scanner::TD    [] = { 
-    "@", ";", ",", ":", "(", ")", 
+    "", ";", ",", ":", "(", ")", 
     "=", "<", ">", "+", "-", "*", 
 	"/","<=", "!=", ">=", "==",  
     "%","*/", "/*", "{", "}", 
@@ -194,7 +194,7 @@ Lex Scanner::get_lex () {
                         buf.push_back (c);
                         CS  = ALE; 
                     }
-                    else if (c == '@')
+                    else if (c == EOF)
                         return Lex ( LEX_FIN );
                     else if (c == '!') {
                         buf.push_back (c);
@@ -249,6 +249,7 @@ Lex Scanner::get_lex () {
                 break;
             case SLASH:
                 if ( c == '*' ) {
+                	buf="";
                     CS = COM;
                 }
                 else{
@@ -272,14 +273,13 @@ Lex Scanner::get_lex () {
 				if ( isdigit (c) ) {
 					f = f + (c - '0')*i;
                     i=i*0.1;
-                }
-                else if (i == 0.1) {
+                }else if (i == 0.1) {
                 	throw c;
-				}
-				else {
-                    ungetc ( c, fp );
-                    return Lex ( LEX_NUM, 0, "", f );
-                }
+				}else {
+           	    	ungetc ( c, fp );
+               	    return Lex ( LEX_DOUBLE, 0, "", f );
+               	}
+               	break;
             case ALE:
                 if ( c == '=' ) {
                     buf.push_back ( c );
@@ -301,7 +301,7 @@ Lex Scanner::get_lex () {
                 else
                     throw '!';
                 break;
-    } //end switch
+    }
   } while (true);
 }
  
@@ -310,16 +310,27 @@ Lex Scanner::get_lex () {
     return s;
 }
  
-int main(){
-	Scanner s("prog.txt");
-	Lex l;
+int main(int argc, char *argv[]){
 	try{
-		while(true){
-			cout << s.get_lex();
+		if (argc==2){
+			Scanner s(argv[1]);
+			Lex l;
+			while((l=s.get_lex()).get_type()!=LEX_FIN){
+				cout << l;
+			}
+			cout << l;
+		}else{
+			throw "File was submitted incorrectly";
 		}
 	}
 	catch(char c){
+		cout << c;
+		return 1;
 	}
+	catch ( const char *source ) {
+        cout << source << endl;
+        return 1;
+    }
 	
 	return 0;
 }
