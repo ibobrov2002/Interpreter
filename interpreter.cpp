@@ -23,7 +23,9 @@ enum type_of_lex {
     POLIZ_LABEL,                                                                                	/*41*/
     POLIZ_ADDRESS,                                                                              	/*42*/
     POLIZ_GO,                                                                                   	/*43*/
-    POLIZ_FGO                                                                                   	/*44*/
+    POLIZ_FGO,                                                                                  	/*44*/
+    LEX_UPLUS,                                                                                   	/*45*/
+    LEX_UMINUS                                                                                   	/*46*/
 };
  
 class Lex {
@@ -306,13 +308,53 @@ Lex Scanner::get_lex () {
     }
   } while (true);
 }
- 
- ostream & operator<< ( ostream &s, Lex l ) {
-    s << '(' << l.t_lex << ',' << l.v_lex << ',' << l.str_lex << ',' << l.doub_lex << ");" << endl;
+
+ostream & operator<< ( ostream &s, Lex l ) {
+    string t;
+    if ( l.t_lex <= LEX_WRITE )
+        t = Scanner::TW[l.t_lex];
+    else if ( l.t_lex >= LEX_FIN && l.t_lex <= LEX_END )
+        t = Scanner::TD[ l.t_lex - LEX_FIN ];
+    else if ( l.t_lex == LEX_NUM )
+        t = "NUMB";
+    else if ( l.t_lex == LEX_QUOTE ){
+        t = "QUOTE";
+        s << '(' << t << ',' << l.str_lex << ");" << endl;
+		return s;
+    }else if ( l.t_lex == LEX_DOUBLE ){
+        t = "DOUBLE";
+        s << '(' << t << ',' << l.doub_lex << ");" << endl;
+		return s;
+    }else if ( l.t_lex == LEX_UPLUS )
+        t = "UPLUS";
+    else if ( l.t_lex == LEX_UMINUS )
+        t = "UMINUS";
+    else if ( l.t_lex == LEX_ID ){
+        t = TID[l.v_lex].get_name ();
+        if (TID[l.v_lex].get_type() == LEX_INT){
+			s << '(' << t << ',' << TID[l.v_lex].get_value_int() << ");" << endl;
+		}else if (TID[l.v_lex].get_type() == LEX_STRING){
+			s << '(' << t << ',' << TID[l.v_lex].get_value_str() << ");" << endl;
+		}else if (TID[l.v_lex].get_type() == LEX_REAL){ 
+			s << '(' << t << ',' << TID[l.v_lex].get_value_doub() << ");" << endl;
+		}
+		return s;
+    }else if ( l.t_lex == POLIZ_LABEL )
+        t = "Label";
+    else if ( l.t_lex == POLIZ_ADDRESS )
+        t = "Addr";
+    else if ( l.t_lex == POLIZ_GO )
+        t = "!";
+    else if ( l.t_lex == POLIZ_FGO ) 
+        t = "!F";
+    else
+        throw l;
+    s << '(' << t << ',' << l.v_lex << ");" << endl;
     return s;
 }
 
-void from_st (stack< type_of_lex > & st, type_of_lex & i ) {
+template <class T, class T_EL>
+void from_st ( T & st, T_EL & i ) {
     i = st.top(); st.pop();
 }
 
@@ -320,7 +362,7 @@ class Parser {
     Lex          curr_lex;
     type_of_lex  c_type;
     int          c_val_int;
-    string 		 c_val_str;//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    string 		 c_val_str;
     double		 c_val_doub;
     Scanner      scan;
     int 		 marker;
@@ -338,7 +380,7 @@ class Parser {
     void  Description();
     void  Type();
     void  Variable(type_of_lex tp);
-    void  Constant(type_of_lex tp);
+    void  Constant(type_of_lex tp, int i);
     void  Operators();
     void  Operator();
     void  CompoundOp();
@@ -362,7 +404,7 @@ class Parser {
         c_type    = curr_lex.get_type ();
         c_val_int = curr_lex.get_value_int ();
        	c_val_str = curr_lex.get_value_str();
-       	c_val_doub= curr_lex.get_value_doub();//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       	c_val_doub= curr_lex.get_value_doub();
     }
 public:
     vector <Lex> poliz;
@@ -427,34 +469,49 @@ void Parser::Type() {
 }
 
 void Parser::Variable(type_of_lex tp) {
+	int i;
 	if (c_type == LEX_ID){
 		if ( TID[curr_lex.get_value_int()].get_declare () ) 
             throw "twice";
         else {
             TID[curr_lex.get_value_int()].put_declare ();
             TID[curr_lex.get_value_int()].put_type ( tp );
+            i = curr_lex.get_value_int();
         }
 		gl();
 	}else
 		throw curr_lex;
 	if (c_type == LEX_EQ ){
 		gl();
-		Constant(tp);
+		Constant(tp, i);
+		TID[i].put_assign ();
 	}
 }
 
-void Parser::Constant(type_of_lex tp) {
+void Parser::Constant(type_of_lex tp, int i) {
 	if (c_type == LEX_QUOTE){
-		gl();
 		if (tp != LEX_STRING)
 			throw "the constant type does not match";
+		TID[i].put_value_str(c_val_str);
+		gl();
 	}else{
-		if (c_type == LEX_PLUS || c_type == LEX_MINUS )
+		int sign = 1;
+		if (c_type == LEX_PLUS )
 			gl();
-		if (c_type == LEX_NUM || c_type == LEX_DOUBLE){
+		else if ( c_type == LEX_MINUS ){
+			sign = -1;
 			gl();
-			if ((c_type == LEX_NUM && tp != LEX_INT) || (c_type == LEX_DOUBLE && tp != LEX_REAL))
+		}	
+		if ( c_type == LEX_NUM ){
+			if (c_type == LEX_NUM && tp != LEX_INT)
 				throw "the constant type does not match";
+			TID[i].put_value_int(sign*c_val_int);
+			gl();	
+		}else if ( c_type == LEX_DOUBLE ){
+			if (c_type == LEX_DOUBLE && tp != LEX_REAL)
+				throw "the constant type does not match";
+			TID[i].put_value_doub(sign*c_val_doub);
+			gl();
 		}else
 			throw curr_lex;
 	}		
@@ -725,7 +782,11 @@ void Parser::Unary() {
         poliz.push_back ( curr_lex );
 		gl();
 	}else if ( c_type == LEX_PLUS || c_type == LEX_MINUS){
-		poliz.push_back ( Lex (c_type) );
+		if (c_type == LEX_PLUS){
+			poliz.push_back ( Lex (LEX_UPLUS) );	
+		}else{
+			poliz.push_back ( Lex (LEX_UMINUS) );
+		}
 		gl();
 		Unary();
 		check_unary();
@@ -793,7 +854,8 @@ void Parser::eq_type () {
     type_of_lex t;
     from_st ( st_lex, t );
     if ( t != st_lex.top () )
-        throw "wrong types are in =";
+		if (!((t == LEX_INT && st_lex.top() == LEX_REAL) || (t == LEX_REAL && st_lex.top() == LEX_INT))) 
+			throw "wrong types are in =";
 }
 
 void Parser::eq_int () {
@@ -832,11 +894,468 @@ void Parser::check_label () {
 	}
 }
 
+class Executer {
+public:
+    void execute ( vector<Lex> & poliz );
+};
+
+void Executer::execute ( vector<Lex> & poliz ) {
+    Lex pc_el;
+    int st_last1=0;
+    int st_last2;
+    stack < int > args_int;
+    stack < string > args_str;
+    stack < double > args_doub;
+    int i_int, j_int, index = 0, size = poliz.size();
+    string i_str, j_str;
+    double i_doub, j_doub;
+    while ( index < size ) {
+        pc_el = poliz [ index ];
+        switch ( pc_el.get_type () ) {
+            case LEX_NUM: case POLIZ_ADDRESS: case POLIZ_LABEL:
+                args_int.push ( pc_el.get_value_int() );
+                st_last2 = st_last1;
+                st_last1 = 0;
+                break;
+                
+            case LEX_QUOTE: 
+            	args_str.push ( pc_el.get_value_str() ); 
+            	st_last2 = st_last1;
+            	st_last1 = 1;
+            	break;
+            	
+            case LEX_DOUBLE:
+            	args_doub.push ( pc_el.get_value_doub() ); 
+            	st_last2 = st_last1;
+            	st_last1 = 2;
+            	break;
+            
+            case LEX_ID:
+                i_int = pc_el.get_value_int ();
+                if ( TID[i_int].get_assign () ) {
+                	if (TID[i_int].get_type() == LEX_INT){
+                    	args_int.push ( TID[i_int].get_value_int () );
+                    	st_last2 = st_last1;
+                		st_last1 = 0;
+                    }else if (TID[i_int].get_type() == LEX_STRING){
+                    	args_str.push( TID[i_int].get_value_str() );
+                    	st_last2 = st_last1;
+            			st_last1 = 1;
+                    }else{
+						args_doub.push( TID[i_int].get_value_doub());	
+						st_last2 = st_last1;
+            			st_last1 = 2;
+					}
+                }else
+                    throw "POLIZ: indefinite identifier";
+                break;
+ 
+            case LEX_NOT:
+                from_st ( args_int, i_int );
+                args_int.push( !i_int );
+                st_last1 = 0;
+                break;
+ 
+            case LEX_OR:
+                from_st ( args_int, i_int ); 
+                from_st ( args_int, j_int );
+                st_last1 = 0;
+                if (j_int)
+                	args_int.push (1);
+				else 
+	                args_int.push ( j_int || i_int );
+				break;
+				
+            case LEX_AND:
+                from_st ( args_int, i_int ); 
+                from_st ( args_int, j_int );
+                st_last1 = 0;
+                if (!j_int)
+                	args_int.push (0);
+				else 
+	                args_int.push ( j_int && i_int );
+				break;
+ 
+            case POLIZ_GO:
+                from_st ( args_int, i_int );
+                index = i_int - 1;
+                break;
+ 
+            case POLIZ_FGO:
+                from_st ( args_int, i_int );
+                from_st ( args_int, j_int );
+                if ( !j_int ) index = i_int - 1;
+                break;
+ 
+            case LEX_WRITE:
+            	if (st_last1 == 0){
+                	from_st ( args_int, j_int );
+                	cout << j_int << endl;
+            	}else if (st_last1 == 1){
+            		from_st ( args_str, j_str);
+            		cout << j_str << endl;
+				}else {
+					from_st ( args_doub, j_doub);
+            		cout << j_doub << endl;
+				}
+                break;
+ 
+            case LEX_READ:
+                from_st ( args_int, i_int );
+                if ( TID[i_int].get_type () == LEX_INT ) {
+                	int k;
+                    cout << "Input int value for " << TID[i_int].get_name () << endl;
+                    cin >> k;
+                	TID[i_int].put_value_int (k);
+                }
+                else if (TID[i_int].get_type () == LEX_STRING){
+                	string k;
+                    cout << "Input string value for " << TID[i_int].get_name () << endl;
+                    cin >> k;
+                	TID[i_int].put_value_str (k);
+                }else{
+                	double k;
+                    cout << "Input double value for " << TID[i_int].get_name () << endl;
+                    cin >> k;
+                	TID[i_int].put_value_doub (k);
+				}
+                TID[i_int].put_assign ();
+                break;
+ 
+            case LEX_PLUS:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( i_int + j_int);
+            		st_last1 = 0;
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( i_doub + j_doub);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_doub.push ( i_doub + j_int);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( i_int + j_doub);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 1)&&(st_last2 == 1)){
+            		from_st ( args_str, i_str);
+            		from_st ( args_str, j_str);
+            		args_str.push ( j_str + i_str);
+            		st_last1 = 1;
+            	}
+                break;
+                
+            case LEX_UPLUS:
+            	if (st_last1 == 0){
+            		from_st ( args_int, i_int);
+            		args_int.push ( +i_int);
+            		st_last1 = 0;
+				}else {
+					from_st ( args_doub, i_doub);
+            		args_doub.push ( +i_doub);
+            		st_last1 = 2;
+				}
+            	break;
+            	
+            case LEX_UMINUS:
+            	if (st_last1 == 0){
+            		from_st ( args_int, i_int);
+            		args_int.push ( -i_int);
+            		st_last1 = 0;
+				}else {
+					from_st ( args_doub, i_doub);
+            		args_doub.push ( -i_doub);
+            		st_last1 = 2;
+				}
+            	break;
+ 
+            case LEX_TIMES:
+                if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( i_int * j_int);
+            		st_last1 = 0;
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( i_doub * j_doub);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_doub.push ( i_doub * j_int);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( i_int * j_doub);
+            		st_last1 = 2;
+            	}
+                break;
+ 
+            case LEX_MINUS:
+                if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int - i_int);
+            		st_last1 = 0;
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( j_doub - i_doub);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_doub.push ( j_doub - i_int);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_doub.push ( j_int - i_doub);
+            		st_last1 = 2;
+            	}
+                break;
+ 
+            case LEX_SLASH:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		if (!i_int)
+                    	throw "POLIZ:divide by zero";
+                    args_int.push ( j_int / i_int );
+            		st_last1 = 0;
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		if (i_int==0)
+                    	throw "POLIZ:divide by zero";
+            		args_doub.push ( j_doub / i_doub);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		if (i_int==0)
+                    	throw "POLIZ:divide by zero";
+            		args_doub.push ( j_doub / i_int);
+            		st_last1 = 2;
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		if (i_int==0)
+                    	throw "POLIZ:divide by zero";
+            		args_doub.push ( j_int / i_doub);
+            		st_last1 = 2;
+            	}
+                break;
+ 
+            case LEX_DEQ:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( i_int == j_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( i_doub == j_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( i_doub == j_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( i_int == j_doub);
+            	}else if ((st_last1 == 1)&&(st_last2 == 1)){
+            		from_st ( args_str, i_str);
+            		from_st ( args_str, j_str);
+            		args_int.push ( i_str == j_str);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_LSS:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int < i_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_doub < i_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_doub < i_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_int < i_doub);
+            	}else if ((st_last1 == 1)&&(st_last2 == 1)){
+            		from_st ( args_str, i_str);
+            		from_st ( args_str, j_str);
+            		args_int.push ( j_str < i_str);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_GTR:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int > i_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_doub > i_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_doub > i_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_int > i_doub);
+            	}else if ((st_last1 == 1)&&(st_last2 == 1)){
+            		from_st ( args_str, i_str);
+            		from_st ( args_str, j_str);
+            		args_int.push ( j_str > i_str);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_LEQ:
+				if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int <= i_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_doub <= i_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_doub <= i_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_int <= i_doub);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_GEQ:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int >= i_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_doub >= i_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_doub >= i_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_int >= i_doub);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_NEQ:
+            	if ((st_last1 == 0)&&(st_last2 == 0)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_int != i_int);
+            	}else if ((st_last1 == 2)&&(st_last2 == 2)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_doub != i_doub);
+            	}else if ((st_last1 == 2)&&(st_last2 == 0)){
+            		from_st ( args_doub, i_doub);
+            		from_st ( args_int, j_int);
+            		args_int.push ( j_doub != i_int);
+            	}else if ((st_last1 == 0)&&(st_last2 == 2)){
+            		from_st ( args_int, i_int);
+            		from_st ( args_doub, j_doub);
+            		args_int.push ( j_int != i_doub);
+            	}else if ((st_last1 == 1)&&(st_last2 == 1)){
+            		from_st ( args_str, i_str);
+            		from_st ( args_str, j_str);
+            		args_int.push ( j_str != i_str);
+            	}
+            	st_last1 = 0;
+                break;
+ 
+            case LEX_EQ:
+            	if ( st_last1 == 0){
+            		from_st ( args_int, i_int);
+            		from_st ( args_int, j_int);
+            		if (TID[j_int].get_type() == LEX_INT)
+						TID[j_int].put_value_int(i_int);
+					else 
+						TID[j_int].put_value_doub(i_int);
+            		if ((index + 1 < size) && (poliz[index + 1].get_type() == LEX_EQ)){
+                		args_int.push( i_int );
+					}
+				}else if ( st_last1 == 1){
+					from_st ( args_str, i_str);
+					from_st ( args_int, j_int);
+					TID[j_int].put_value_str(i_str);
+					if ((index + 1 < size) && (poliz[index + 1].get_type() == LEX_EQ)){
+                		args_str.push( i_str );
+                	}
+				}else{
+					from_st ( args_doub, i_doub);
+					from_st ( args_int, j_int);
+					if (TID[j_int].get_type() == LEX_INT)
+						TID[j_int].put_value_int(int(i_doub));
+					else 
+						TID[j_int].put_value_doub(i_doub);
+					if ((index + 1 < size) && (poliz[index + 1].get_type() == LEX_EQ)){
+                		args_doub.push( i_doub );
+                	}
+				}
+                TID[j_int].put_assign (); 
+                break;
+ 
+            default:
+                throw "POLIZ: unexpected elem";
+        }//end of switch
+        ++index;
+    };//end of while
+    cout << "Finish of executing!!!" << endl;
+}
+
+class Interpretator {
+    Parser   pars;
+    Executer E;
+public:
+    Interpretator ( const char* program ): pars (program) {}
+    void     interpretation ();
+};
+ 
+void Interpretator::interpretation () {
+    pars.analyze ();
+    E.execute ( pars.poliz );
+}
+
 int main(int argc, char *argv[]){
 	try{
 		if (argc==2){
-			Parser p(argv[1]);
-			p.analyze();
+			Interpretator I(argv[1]);
+			I.interpretation();
+			return 0;
 		}else{
 			throw "File was submitted incorrectly";
 		}
@@ -853,6 +1372,4 @@ int main(int argc, char *argv[]){
         cout << source << endl;
         return 1;
     }
-	
-	return 0;
 }
